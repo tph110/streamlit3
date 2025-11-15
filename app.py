@@ -409,9 +409,13 @@ def validate_image(image: Image.Image) -> Tuple[bool, Optional[str]]:
         if width > MAX_IMAGE_SIZE or height > MAX_IMAGE_SIZE:
             return False, f"Image too large (max {MAX_IMAGE_SIZE}x{MAX_IMAGE_SIZE})"
         
-        # Check format
-        if image.format not in ['JPEG', 'PNG', 'JPG']:
-            return False, "Unsupported format (use JPEG/PNG)"
+        # PIL's format attribute can be None for some images
+        # Instead, just verify the image can be converted to RGB
+        try:
+            # Try to convert to RGB (this will fail for unsupported formats)
+            _ = image.convert('RGB')
+        except Exception:
+            return False, "Unable to process image format"
         
         return True, None
     except Exception as e:
