@@ -5,6 +5,7 @@ from PIL import Image
 import timm
 import os
 import json
+import requests
 import numpy as np
 import logging
 from typing import Optional, Dict, Tuple, Any
@@ -21,8 +22,9 @@ NUM_CLASSES = 7  # Updated: now 7-class model
 MALIGNANT_THRESHOLD = 0.35  # Threshold for combined malignant probability
 
 # Model file paths
-MODEL_PATH = "best_model_20251115T091634Z.pth"  # Your trained model
-LABEL_MAP_PATH = "label_map_20251115T091634Z.json"  # Your label mapping
+MODEL_URL = "https://huggingface.co/Skindoc/streamlit3/resolve/main/best_model_20251115T091634Z.pth"
+MODEL_PATH = "model_cache.pth"  # Local cache file
+LABEL_MAP_PATH = "label_map_20251115T091634Z.json"  # Your label mapping (in GitHub repo)
 
 # Updated model metrics from your training
 MODEL_METRICS = {
@@ -223,6 +225,37 @@ render_html("""
 
 # ===================== HELPER FUNCTIONS =====================
 
+def download_model(url: str, output_path: str) -> None:
+    """Download model from Hugging Face if not already cached."""
+    if os.path.exists(output_path):
+        logger.info(f"Model already cached at {output_path}")
+        return
+    
+    logger.info(f"Downloading model from {url}...")
+    try:
+        import requests
+        response = requests.get(url, stream=True)
+        response.raise_for_status()
+        
+        total_size = int(response.headers.get('content-length', 0))
+        
+        with open(output_path, 'wb') as f:
+            if total_size == 0:
+                f.write(response.content)
+            else:
+                downloaded = 0
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk)
+                        downloaded += len(chunk)
+        
+        logger.info(f"Model downloaded successfully to {output_path}")
+    except Exception as e:
+        logger.error(f"Failed to download model: {e}")
+        if os.path.exists(output_path):
+            os.remove(output_path)
+        raise
+
 @st.cache_resource
 def load_label_map(label_map_path: str) -> Dict[int, str]:
     """Load label mapping from JSON file."""
@@ -258,9 +291,13 @@ def load_label_map(label_map_path: str) -> Dict[int, str]:
         }
 
 @st.cache_resource
-def load_model(model_path: str) -> torch.nn.Module:
-    """Load the trained model with caching."""
+def load_model(model_url: str, model_path: str) -> torch.nn.Module:
+    """Download and load the trained model with caching."""
     try:
+        # Download model if not cached
+        with st.spinner('🔄 Downloading model from Hugging Face (69MB, first time only)...'):
+            download_model(model_url, model_path)
+        
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         logger.info(f"Loading model on device: {device}")
         
@@ -490,7 +527,7 @@ render_html("""
 """)
 
 # Load model and label map
-model = load_model(MODEL_PATH)
+model = load_model(MODEL_URL, MODEL_PATH)
 label_map = load_label_map(LABEL_MAP_PATH)
 
 # Image upload
